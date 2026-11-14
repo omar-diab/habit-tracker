@@ -3,9 +3,17 @@ from datetime import date
 import pytest
 from fastapi.testclient import TestClient
 
+import main
 from main import app, get_today
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def temp_db(tmp_path, monkeypatch):
+    """Give each test its own database so test data never reaches habits.db."""
+    monkeypatch.setattr(main, "DB_PATH", tmp_path / "test.db")
+    main.init_db()
 
 
 def test_create_and_list_habit():
