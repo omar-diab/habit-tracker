@@ -14,6 +14,7 @@ import sqlite3
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
@@ -95,11 +96,22 @@ def get_today() -> date:
     return date.today()
 
 
+def parse_day(value: str) -> date | None:
+    """Parse a stored ISO day, or return None for a malformed value."""
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 @app.get("/habits/{habit_id}/streak")
-def get_streak(habit_id: int, today: date = Depends(get_today)):
+def get_streak(habit_id: int, today: Annotated[date, Depends(get_today)]):
     with closing(get_db()) as conn:
+        habit = conn.execute("SELECT id FROM habits WHERE id = ?", (habit_id,)).fetchone()
+        if habit is None:
+            raise HTTPException(status_code=404, detail="unknown habit")
         rows = conn.execute("SELECT day FROM checkins WHERE habit_id = ?", (habit_id,)).fetchall()
-    days = {date.fromisoformat(r["day"]) for r in rows}
+    days = {parse_day(r["day"]) for r in rows}
     streak = 0
     current = today
     while current in days:
