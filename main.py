@@ -12,9 +12,11 @@ Test:
 
 import sqlite3
 from contextlib import closing
+from datetime import date, timedelta
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 DB_PATH = Path(__file__).parent / "habits.db"
@@ -87,3 +89,32 @@ def list_checkins(habit_id: int):
             "SELECT day FROM checkins WHERE habit_id = ? ORDER BY day", (habit_id,)
         ).fetchall()
     return [r["day"] for r in rows]
+
+
+def get_today() -> date:
+    """Today's date; overridden in tests so streaks don't depend on the real clock."""
+    return date.today()
+
+
+def parse_day(value: str) -> date | None:
+    """Parse a stored ISO day, or return None for a malformed value."""
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+@app.get("/habits/{habit_id}/streak")
+def get_streak(habit_id: int, today: Annotated[date, Depends(get_today)]):
+    with closing(get_db()) as conn:
+        habit = conn.execute("SELECT id FROM habits WHERE id = ?", (habit_id,)).fetchone()
+        if habit is None:
+            raise HTTPException(status_code=404, detail="unknown habit")
+        rows = conn.execute("SELECT day FROM checkins WHERE habit_id = ?", (habit_id,)).fetchall()
+    days = {parse_day(r["day"]) for r in rows}
+    streak = 0
+    current = today
+    while current in days:
+        streak += 1
+        current -= timedelta(days=1)
+    return {"habit_id": habit_id, "streak": streak}
